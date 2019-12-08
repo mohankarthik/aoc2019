@@ -12,10 +12,11 @@ type Computer struct {
 	LogChannel *chan string
 	Name 	   string
 	Output     chan Msg
-	Outputs    []int
+	
 
 	code []int
 	pc int
+	outputs    []int
 }
 
 const (
@@ -47,10 +48,13 @@ func NewComputerWithName(name string, code []int) Computer {
 	copy(memCopy, code)
 
 	return Computer{
-		code:   memCopy,
 		Input: make(chan Msg),
 		Output: make(chan Msg),
 		Name: name,
+
+		code:   memCopy,
+		outputs: make([]int, 0),
+		pc: 0,
 	}
 }
 
@@ -105,7 +109,7 @@ func (c *Computer) Run() {
 
 			// Execute
 			c.trySend(op1)
-			c.Outputs = append(c.Outputs, op1)
+			c.outputs = append(c.outputs, op1)
 
 			// Increment
 			c.pc += 2
@@ -172,7 +176,7 @@ func (c *Computer) Run() {
 
 // GetLastOutput gets the last output by this computer
 func (c *Computer) GetLastOutput() int {
-	return c.Outputs[len(c.Outputs)-1]
+	return c.outputs[len(c.outputs)-1]
 }
 
 func (c *Computer) getOperand(pos int, mode int) int {
