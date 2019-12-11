@@ -1,5 +1,9 @@
 package computer
 
+import (
+	"strconv"
+)
+
 // Msg defines the message structure used by this computer
 type Msg struct {
 	Sender string
@@ -9,14 +13,14 @@ type Msg struct {
 // Computer defines a new computer
 type Computer struct {
 	Input      chan Msg
-	LogChannel *chan string
 	Name 	   string
 	Output     chan Msg
 	
 
-	code []int
-	pc int
+	code       []int
+	pc         int
 	outputs    []int
+	relBase	   int
 }
 
 const (
@@ -27,6 +31,7 @@ const (
 const (
 	paramModePosition  = 0
 	paramModeImmediate = 1
+	paramModeRelative  = 2
 )
 
 const (
@@ -38,14 +43,17 @@ const (
 	opJumpFalse = 6
 	opLessThan  = 7
 	opEquals    = 8
+	opAdjRel    = 9
 	opHalt      = 99
 )
 
 // NewComputerWithName creates a new computer with a name
 func NewComputerWithName(name string, code []int) Computer {
-	memCopy := make([]int, len(code))
+	memCopy := make([]int, 5000)
 
 	copy(memCopy, code)
+
+	log("Created: " + name)
 
 	return Computer{
 		Input: make(chan Msg),
@@ -55,7 +63,12 @@ func NewComputerWithName(name string, code []int) Computer {
 		code:   memCopy,
 		outputs: make([]int, 0),
 		pc: 0,
+		relBase: 0,
 	}
+}
+
+func log(msg string) {
+	// fmt.Println(msg)
 }
 
 // Run runs the computer
@@ -64,6 +77,8 @@ func (c *Computer) Run() {
 
 	// Go into an infinite loop
 	for {
+		log(c.Name + " at PC: " + strconv.Itoa(c.pc))
+
 		// Get the Op Code
 		opCode, modes := c.decodeOp()
 
@@ -76,10 +91,9 @@ func (c *Computer) Run() {
 			// Read
 			op1 := c.getOperand(c.pc+1, modes[0])
 			op2 := c.getOperand(c.pc+2, modes[1])
-			op3 := c.code[c.pc+3]
 
 			// Execute
-			c.code[op3] = op1 + op2
+			c.writeOperand(c.pc+3, modes[2], op1 + op2)
 
 			// Increment the program counter
 			c.pc += 4
@@ -87,19 +101,22 @@ func (c *Computer) Run() {
 			// Read
 			op1 := c.getOperand(c.pc+1, modes[0])
 			op2 := c.getOperand(c.pc+2, modes[1])
-			op3 := c.code[c.pc+3]
 
 			// Execute
-			c.code[op3] = op1 * op2
+			c.writeOperand(c.pc+3, modes[2], op1 * op2)
 
 			// Increment
 			c.pc += 4
 		} else if opCode == opIn {
+			log(c.Name + " waiting for input")
+
 			// Read
 			msg := <-c.Input
 
+			log(c.Name + " got input: " + strconv.Itoa(msg.Data))
+
 			// Execute
-			c.code[c.code[c.pc+1]] = msg.Data
+			c.writeOperand(c.pc+1, modes[0], msg.Data)
 
 			// Increment
 			c.pc += 2
@@ -107,9 +124,12 @@ func (c *Computer) Run() {
 			// Read
 			op1 := c.getOperand(c.pc+1, modes[0])
 
+			log(c.Name + " waiting to output")
+
 			// Execute
 			c.trySend(op1)
 			c.outputs = append(c.outputs, op1)
+			log(c.Name + " Outputing " + strconv.Itoa(op1))
 
 			// Increment
 			c.pc += 2
@@ -141,13 +161,12 @@ func (c *Computer) Run() {
 			// Read
 			op1 := c.getOperand(c.pc+1, modes[0])
 			op2 := c.getOperand(c.pc+2, modes[1])
-			op3 := c.code[c.pc+3]
 
 			// Execute
 			if op1 < op2 {
-				c.code[op3] = 1
+				c.writeOperand(c.pc+3, modes[2], 1)
 			} else {
-				c.code[op3] = 0
+				c.writeOperand(c.pc+3, modes[2], 0)
 			}
 
 			// Increment
@@ -156,21 +175,28 @@ func (c *Computer) Run() {
 			// Read
 			op1 := c.getOperand(c.pc+1, modes[0])
 			op2 := c.getOperand(c.pc+2, modes[1])
-			op3 := c.code[c.pc+3]
 
 			// Execute
 			if op1 == op2 {
-				c.code[op3] = 1
+				c.writeOperand(c.pc+3, modes[2], 1)
 			} else {
-				c.code[op3] = 0
+				c.writeOperand(c.pc+3, modes[2], 0)
 			}
 
 			// Increment
 			c.pc += 4
+		} else if opCode == opAdjRel {
+			// Read
+			op1 := c.getOperand(c.pc+1, modes[0])
+
+			// Execute
+			c.relBase += op1
+
+			// Increment
+			c.pc += 2
 		} else {
 			panic("Unknown opcode")
 		}
-
 	}
 }
 
@@ -179,9 +205,21 @@ func (c *Computer) GetLastOutput() int {
 	return c.outputs[len(c.outputs)-1]
 }
 
+func (c *Computer) writeOperand(pos int, mode int, value int) {
+	if mode == paramModePosition {
+		c.code[c.code[pos]] = value
+	} else if mode == paramModeRelative {
+		c.code[c.relBase + c.code[pos]] = value
+	} else {
+		panic("Unsupported write operand mode")
+	}
+}
+
 func (c *Computer) getOperand(pos int, mode int) int {
 	if mode == paramModePosition {
 		return c.code[c.code[pos]]
+	} else if mode == paramModeRelative {
+		return c.code[c.relBase + c.code[pos]]
 	}
 	return c.code[pos]
 }
