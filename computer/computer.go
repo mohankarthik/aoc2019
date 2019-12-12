@@ -15,7 +15,9 @@ type Computer struct {
 	Input      chan Msg
 	Name 	   string
 	Output     chan Msg
-	
+	IsHalted   bool
+	IsWaitingForInput bool
+	IsReadyForOutput bool
 
 	code       []int
 	pc         int
@@ -59,6 +61,9 @@ func NewComputerWithName(name string, code []int) Computer {
 		Input: make(chan Msg),
 		Output: make(chan Msg),
 		Name: name,
+		IsHalted: false,
+		IsWaitingForInput: false,
+		IsReadyForOutput: false,
 
 		code:   memCopy,
 		outputs: make([]int, 0),
@@ -74,6 +79,7 @@ func log(msg string) {
 // Run runs the computer
 func (c *Computer) Run() {
 	c.pc = 0
+	c.IsHalted = false
 
 	// Go into an infinite loop
 	for {
@@ -84,6 +90,7 @@ func (c *Computer) Run() {
 
 		// Check for halt
 		if opCode == opHalt {
+			c.IsHalted = true
 			break
 		}
 
@@ -109,13 +116,14 @@ func (c *Computer) Run() {
 			c.pc += 4
 		} else if opCode == opIn {
 			log(c.Name + " waiting for input")
+			c.IsWaitingForInput = true
 
 			// Read
 			msg := <-c.Input
-
 			log(c.Name + " got input: " + strconv.Itoa(msg.Data))
 
 			// Execute
+			c.IsWaitingForInput = false
 			c.writeOperand(c.pc+1, modes[0], msg.Data)
 
 			// Increment
@@ -123,13 +131,14 @@ func (c *Computer) Run() {
 		} else if opCode == opOut {
 			// Read
 			op1 := c.getOperand(c.pc+1, modes[0])
-
 			log(c.Name + " waiting to output")
+			c.IsReadyForOutput = true
 
 			// Execute
 			c.trySend(op1)
 			c.outputs = append(c.outputs, op1)
 			log(c.Name + " Outputing " + strconv.Itoa(op1))
+			c.IsReadyForOutput = false
 
 			// Increment
 			c.pc += 2
